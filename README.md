@@ -1,0 +1,1 @@
+This is my interpretation of the Gymondo Subscription Service Assessment
