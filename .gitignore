@@ -1,0 +1,9 @@
+# .gitignore
+*.log
+*.out
+*.exe
+*.test
+vendor/
+.idea/
+.env
+.DS_Store
