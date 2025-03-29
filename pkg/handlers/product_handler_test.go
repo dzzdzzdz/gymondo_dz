@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"gymondo_dz/pkg/models"
 	"gymondo_dz/pkg/repositories"
@@ -119,4 +122,42 @@ func TestProductHandler(t *testing.T) {
 			mockRepo.AssertExpectations(t)
 		})
 	}
+}
+
+func TestGetProductsWithLargeDataset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mockRepo := new(MockProductRepository)
+
+	// Generate 1000 products (large enough to test performance, small enough for unit tests)
+	largeProducts := make([]models.Product, 1000)
+	for i := 0; i < 1000; i++ {
+		largeProducts[i] = models.Product{
+			ID:        uuid.New(),
+			Name:      fmt.Sprintf("Product %d", i),
+			Price:     9.99 + float64(i),
+			Duration:  models.DurationMonth,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+	}
+
+	mockRepo.On("GetProducts").Return(largeProducts, nil)
+	handler := NewProductHandler(mockRepo)
+
+	router := gin.New()
+	router.GET("/products", handler.GetProducts)
+
+	req := httptest.NewRequest("GET", "/products", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string][]models.Product
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+
+	assert.Len(t, response["data"], 1000)
+	assert.Equal(t, "Product 0", response["data"][0].Name)
+	assert.Equal(t, "Product 999", response["data"][999].Name)
 }
