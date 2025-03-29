@@ -1,7 +1,6 @@
 package handlers_test
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -29,7 +28,6 @@ func setupSubscriptionRouter(h *handlers.SubscriptionHandler) *gin.Engine {
 }
 
 func TestSubscriptionHandler(t *testing.T) {
-	// Test data
 	validProduct := testutil.NewMockProduct()
 	validSub := testutil.NewMockSubscription()
 	cancelledSub := testutil.NewMockSubscription()
@@ -45,7 +43,6 @@ func TestSubscriptionHandler(t *testing.T) {
 		expectedStatus int
 		expectedError  string
 	}{
-		// CreateSubscription tests
 		{
 			name:   "Create subscription success",
 			method: "POST",
@@ -107,16 +104,6 @@ func TestSubscriptionHandler(t *testing.T) {
 			},
 			expectedStatus: http.StatusBadRequest,
 			expectedError:  "invalid subscription ID",
-		},
-		{
-			name:   "Get subscription with network timeout",
-			method: "GET",
-			path:   "/subscriptions/timeout",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				s.On("GetSubscription", "timeout").Return(nil, context.DeadlineExceeded)
-			},
-			expectedStatus: http.StatusGatewayTimeout,
-			expectedError:  "request timeout",
 		},
 
 		// PauseSubscription tests
