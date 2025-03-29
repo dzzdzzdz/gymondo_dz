@@ -142,5 +142,7 @@ func (r *SubscriptionRepositoryImpl) CancelSubscription(id string) (*models.Subs
 	sub.CancelledAt = &now
 	sub.UpdatedAt = now
 
+	r.subscriptions[sub.ID] = sub // critical!
+
 	return sub, nil
 }
