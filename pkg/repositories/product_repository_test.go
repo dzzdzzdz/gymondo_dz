@@ -1,14 +1,15 @@
-package repositories
+package repositories_test
 
 import (
 	"gymondo_dz/pkg/models"
+	"gymondo_dz/pkg/repositories"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestProductRepository(t *testing.T) {
-	repo := NewProductRepository()
+	repo := repositories.NewProductRepository()
 
 	validID := "11111111-1111-1111-1111-111111111111"
 	invalidID := "00000000-0000-0000-0000-000000000000"
