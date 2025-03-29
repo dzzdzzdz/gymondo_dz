@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"gymondo_dz/pkg/repositories"
@@ -31,22 +32,24 @@ func (h *ProductHandler) GetProducts(c *gin.Context) {
 func (h *ProductHandler) GetProduct(c *gin.Context) {
 	productID := c.Param("id")
 	product, err := h.repo.GetProduct(productID)
-	if err != nil {
-		if err.Error() == "product not found" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": "product not found",
-			})
-			return
-		}
 
+	switch {
+	case errors.Is(err, repositories.ErrProductNotFound):
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": err.Error(),
+		})
+	case errors.Is(err, repositories.ErrInvalidProductID):
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "invalid product ID",
+			"error":   "invalid request",
 			"details": err.Error(),
 		})
-		return
+	case err != nil:
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "internal server error",
+		})
+	default:
+		c.JSON(http.StatusOK, gin.H{
+			"data": product,
+		})
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"data": product,
-	})
 }

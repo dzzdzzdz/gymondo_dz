@@ -8,6 +8,11 @@ import (
 	"github.com/google/uuid"
 )
 
+var (
+	ErrProductNotFound  = errors.New("product not found")
+	ErrInvalidProductID = errors.New("invalid product ID format")
+)
+
 type ProductRepository interface {
 	GetProducts() ([]models.Product, error)
 	GetProduct(id string) (*models.Product, error)
@@ -68,12 +73,12 @@ func (r *ProductRepositoryImpl) GetProducts() ([]models.Product, error) {
 func (r *ProductRepositoryImpl) GetProduct(id string) (*models.Product, error) {
 	productID, err := uuid.Parse(id)
 	if err != nil {
-		return nil, errors.New("invalid product ID format")
+		return nil, ErrInvalidProductID
 	}
 
 	if product, exists := r.productMap[productID]; exists {
 		return &product, nil
 	}
 
-	return nil, errors.New("product not found")
+	return nil, ErrProductNotFound
 }
