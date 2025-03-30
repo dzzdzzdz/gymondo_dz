@@ -1,17 +1,28 @@
 package main
 
 import (
+	"gymondo_dz/pkg/database"
 	"gymondo_dz/pkg/handlers"
 	"gymondo_dz/pkg/repositories"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	productRepo := repositories.NewProductRepository()
-	subscriptionRepo := repositories.NewSubscriptionRepository()
+	db, err := database.NewPostgresConnection()
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+
+	if err := database.AutoMigrate(db, false); err != nil {
+		log.Fatalf("Failed to auto-migrate: %v", err)
+	}
+
+	productRepo := repositories.NewProductRepository(db)
+	subscriptionRepo := repositories.NewSubscriptionRepository(db)
 
 	productHandler := handlers.NewProductHandler(productRepo)
 	subscriptionHandler := handlers.NewSubscriptionHandler(subscriptionRepo, productRepo)
@@ -37,7 +48,10 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	port := ":8080"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
 	log.Printf("Starting server on %s", port)
 	if err := router.Run(port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

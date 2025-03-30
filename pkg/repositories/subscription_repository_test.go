@@ -4,196 +4,227 @@ import (
 	"testing"
 	"time"
 
+	"gymondo_dz/pkg/database"
 	"gymondo_dz/pkg/models"
 	"gymondo_dz/pkg/repositories"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
-func TestSubscriptionRepository(t *testing.T) {
-	validProduct := &models.Product{
-		ID:       uuid.New(),
-		Duration: models.DurationMonth, // 30 days
-	}
-	expiredProduct := &models.Product{
-		ID:       uuid.New(),
-		Duration: -30, // Already expired duration
+type SubscriptionRepositoryTestSuite struct {
+	suite.Suite
+	db          *gorm.DB
+	productRepo repositories.ProductRepository
+	subRepo     repositories.SubscriptionRepository
+}
+
+func (s *SubscriptionRepositoryTestSuite) SetupSuite() {
+	// Setup in-memory SQLite database
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	if err != nil {
+		s.FailNow("Failed to connect to test database")
 	}
 
-	validUserID := uuid.New()
+	// Run migrations
+	if err := database.AutoMigrate(db, true); err != nil {
+		s.FailNow("Failed to migrate test database")
+	}
 
+	s.db = db
+	s.productRepo = repositories.NewProductRepository(db)
+	s.subRepo = repositories.NewSubscriptionRepository(db)
+}
+
+func (s *SubscriptionRepositoryTestSuite) SetupTest() {
+	// Clear all data before each test
+	s.db.Exec("DELETE FROM subscriptions")
+	s.db.Exec("DELETE FROM products")
+}
+
+func TestSubscriptionRepositorySuite(t *testing.T) {
+	suite.Run(t, new(SubscriptionRepositoryTestSuite))
+}
+
+func (s *SubscriptionRepositoryTestSuite) seedTestProduct() *models.Product {
+	product := &models.Product{
+		ID:       uuid.New(),
+		Name:     "Test Product",
+		Duration: models.DurationMonth,
+		Price:    9.99,
+	}
+	s.NoError(s.db.Create(product).Error)
+	return product
+}
+
+func (s *SubscriptionRepositoryTestSuite) TestCreateSubscription() {
+	product := s.seedTestProduct()
+	userID := uuid.New().String()
+
+	// Test valid creation
+	sub, err := s.subRepo.CreateSubscription(userID, product)
+	s.NoError(err)
+	s.NotNil(sub)
+	s.Equal(userID, sub.UserID.String())
+	s.Equal(product.ID, sub.ProductID)
+	s.Equal(models.StatusActive, sub.Status)
+	s.WithinDuration(time.Now(), sub.StartDate, time.Second)
+	s.WithinDuration(time.Now().Add(time.Hour*24*time.Duration(product.Duration)), sub.EndDate, time.Second)
+
+	// Test error cases
 	tests := []struct {
 		name          string
 		userID        string
 		product       *models.Product
-		expectError   bool
 		expectedError error
 	}{
 		{
-			name:        "Create with valid product",
-			userID:      validUserID.String(),
-			product:     validProduct,
-			expectError: false,
+			name:          "Invalid user ID",
+			userID:        "invalid-uuid",
+			product:       product,
+			expectedError: repositories.ErrInvalidSubscriptionID,
 		},
 		{
-			name:          "Create with nil product",
-			userID:        validUserID.String(),
+			name:          "Nil product",
+			userID:        userID,
 			product:       nil,
-			expectError:   true,
 			expectedError: repositories.ErrProductRequired,
 		},
 		{
-			name:          "Create with expired product",
-			userID:        validUserID.String(),
-			product:       expiredProduct,
-			expectError:   true,
+			name:          "Invalid product duration",
+			userID:        userID,
+			product:       &models.Product{Duration: 0},
 			expectedError: repositories.ErrInvalidProductDuration,
 		},
 	}
 
-	repo := repositories.NewSubscriptionRepository()
-
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sub, err := repo.CreateSubscription(tt.userID, tt.product)
-
-			if tt.expectError {
-				assert.Error(t, err)
-				assert.Equal(t, tt.expectedError, err)
-				assert.Nil(t, sub)
-			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, sub)
-				assert.Equal(t, tt.userID, sub.UserID.String())
-				assert.Equal(t, tt.product.ID, sub.ProductID)
-				assert.Equal(t, models.StatusActive, sub.Status)
-				assert.WithinDuration(t, time.Now().Add(time.Duration(tt.product.Duration)*24*time.Hour), sub.EndDate, time.Second)
-			}
+		s.Run(tt.name, func() {
+			sub, err := s.subRepo.CreateSubscription(tt.userID, tt.product)
+			s.Error(err)
+			s.Equal(tt.expectedError, err)
+			s.Nil(sub)
 		})
 	}
 }
 
-func TestSubscriptionLifecycle(t *testing.T) {
-	repo := repositories.NewSubscriptionRepository()
-	product := &models.Product{
-		ID:       uuid.New(),
-		Duration: 30,
-	}
-	userID := uuid.New()
+func (s *SubscriptionRepositoryTestSuite) TestGetSubscription() {
+	product := s.seedTestProduct()
+	userID := uuid.New().String()
 
-	// Create subscription
-	sub, err := repo.CreateSubscription(userID.String(), product)
-	assert.NoError(t, err)
-	assert.NotNil(t, sub)
+	// Create test subscription
+	sub, err := s.subRepo.CreateSubscription(userID, product)
+	s.NoError(err)
 
-	// Test initial state
-	t.Run("Initial state is active", func(t *testing.T) {
-		retrieved, err := repo.GetSubscription(sub.ID.String())
-		assert.NoError(t, err)
-		assert.Equal(t, models.StatusActive, retrieved.Status)
-	})
+	// Test successful get
+	retrieved, err := s.subRepo.GetSubscription(sub.ID.String())
+	s.NoError(err)
+	s.Equal(sub.ID, retrieved.ID)
+
+	// Test not found
+	_, err = s.subRepo.GetSubscription(uuid.New().String())
+	s.Error(err)
+	s.Equal(repositories.ErrSubscriptionNotFound, err)
+
+	// Test invalid ID
+	_, err = s.subRepo.GetSubscription("invalid-uuid")
+	s.Error(err)
+	s.Equal(repositories.ErrInvalidSubscriptionID, err)
+}
+
+func (s *SubscriptionRepositoryTestSuite) TestPauseUnpauseSubscription() {
+	product := s.seedTestProduct()
+	userID := uuid.New().String()
+	sub, err := s.subRepo.CreateSubscription(userID, product)
+	s.NoError(err)
 
 	// Test pause
-	t.Run("Can pause active subscription", func(t *testing.T) {
-		pausedSub, err := repo.PauseSubscription(sub.ID.String())
-		assert.NoError(t, err)
-		assert.Equal(t, models.StatusPaused, pausedSub.Status)
-	})
+	pausedSub, err := s.subRepo.PauseSubscription(sub.ID.String())
+	s.NoError(err)
+	s.Equal(models.StatusPaused, pausedSub.Status)
+	s.NotNil(pausedSub.PausedAt)
+
+	// Test cannot pause already paused
+	_, err = s.subRepo.PauseSubscription(sub.ID.String())
+	s.Error(err)
+	s.Equal(repositories.ErrCannotPause, err)
 
 	// Test unpause
-	t.Run("Can unpause paused subscription", func(t *testing.T) {
-		unpausedSub, err := repo.UnpauseSubscription(sub.ID.String())
-		assert.NoError(t, err)
-		assert.Equal(t, models.StatusActive, unpausedSub.Status)
-	})
+	unpausedSub, err := s.subRepo.UnpauseSubscription(sub.ID.String())
+	s.NoError(err)
+	s.Equal(models.StatusActive, unpausedSub.Status)
+	s.Nil(unpausedSub.PausedAt)
+
+	// Test cannot unpause active
+	_, err = s.subRepo.UnpauseSubscription(sub.ID.String())
+	s.Error(err)
+	s.Equal(repositories.ErrCannotUnpause, err)
+}
+
+func (s *SubscriptionRepositoryTestSuite) TestCancelSubscription() {
+	product := s.seedTestProduct()
+	userID := uuid.New().String()
+	sub, err := s.subRepo.CreateSubscription(userID, product)
+	s.NoError(err)
 
 	// Test cancel
-	t.Run("Can cancel active subscription", func(t *testing.T) {
-		cancelledSub, err := repo.CancelSubscription(sub.ID.String())
-		assert.NoError(t, err)
-		assert.Equal(t, models.StatusCancelled, cancelledSub.Status)
-	})
+	cancelledSub, err := s.subRepo.CancelSubscription(sub.ID.String())
+	s.NoError(err)
+	s.Equal(models.StatusCancelled, cancelledSub.Status)
+	s.NotNil(cancelledSub.CancelledAt)
 
-	// Test cannot pause cancelled
-	t.Run("Cannot pause cancelled subscription", func(t *testing.T) {
-		product := &models.Product{ID: uuid.New(), Duration: 30}
-		userID := uuid.New()
-		sub, err := repo.CreateSubscription(userID.String(), product)
-		assert.NoError(t, err)
-
-		_, err = repo.CancelSubscription(sub.ID.String())
-		_, err = repo.PauseSubscription(sub.ID.String())
-
-		assert.Error(t, err)
-		assert.Equal(t, repositories.ErrCannotPause, err)
-	})
-
-	// Verify subscription still exists
-	t.Run("Cancelled subscription still exists", func(t *testing.T) {
-		product := &models.Product{ID: uuid.New(), Duration: 30}
-		userID := uuid.New()
-		sub, err := repo.CreateSubscription(userID.String(), product)
-		assert.NoError(t, err)
-		_, err = repo.CancelSubscription(sub.ID.String())
-
-		retrieved, err := repo.GetSubscription(sub.ID.String())
-		assert.NoError(t, err)
-		assert.Equal(t, models.StatusCancelled, retrieved.Status)
-	})
+	// Test cannot cancel already cancelled
+	_, err = s.subRepo.CancelSubscription(sub.ID.String())
+	s.Error(err)
+	s.Equal(repositories.ErrCannotCancel, err)
 }
 
-func TestAutoExpiration(t *testing.T) {
-	repo := repositories.NewSubscriptionRepository()
-	product := &models.Product{
-		ID:       uuid.New(),
-		Duration: 1, // 1 day duration
-	}
+func (s *SubscriptionRepositoryTestSuite) TestAutoExpiration() {
+	product := s.seedTestProduct()
+	userID := uuid.New().String()
+	sub, err := s.subRepo.CreateSubscription(userID, product)
+	s.NoError(err)
 
-	sub, err := repo.CreateSubscription(uuid.New().String(), product)
-	assert.NoError(t, err)
+	// Manually set end date to past
+	s.db.Model(&models.Subscription{}).Where("id = ?", sub.ID).
+		Update("end_date", time.Now().Add(-24*time.Hour))
 
-	// auto-expire by setting EndDate to past
-	sub.EndDate = time.Now().Add(-24 * time.Hour)
-
-	t.Run("Auto-expire on get", func(t *testing.T) {
-		retrieved, err := repo.GetSubscription(sub.ID.String())
-		assert.NoError(t, err)
-		assert.Equal(t, models.StatusExpired, retrieved.Status)
-	})
+	// Test auto-expiration on get
+	retrieved, err := s.subRepo.GetSubscription(sub.ID.String())
+	s.NoError(err)
+	s.Equal(models.StatusExpired, retrieved.Status)
 }
 
-func TestUnpauseSubscription(t *testing.T) {
-	repo := repositories.NewSubscriptionRepository()
-	product := &models.Product{ID: uuid.New(), Duration: 30}
-	userID := uuid.New()
+func (s *SubscriptionRepositoryTestSuite) TestUnpauseExtendsSubscription() {
+	product := s.seedTestProduct()
+	userID := uuid.New().String()
+	sub, err := s.subRepo.CreateSubscription(userID, product)
+	s.NoError(err)
 
-	sub, err := repo.CreateSubscription(userID.String(), product)
-	assert.NoError(t, err)
-
+	// Pause the subscription and record time
 	beforePause := time.Now()
+	pausedSub, err := s.subRepo.PauseSubscription(sub.ID.String())
+	s.NoError(err)
 
-	_, err = repo.PauseSubscription(sub.ID.String())
-	assert.NoError(t, err)
+	// Verify pause happened after our marker time
+	s.True(pausedSub.PausedAt.After(beforePause) || pausedSub.PausedAt.Equal(beforePause))
 
-	pausedSub, err := repo.GetSubscription(sub.ID.String())
-	assert.NoError(t, err)
-	assert.NotNil(t, pausedSub.PausedAt)
-	assert.True(t, pausedSub.PausedAt.After(beforePause) ||
-		pausedSub.PausedAt.Equal(beforePause),
-		"PausedAt should be after or equal to beforePause time")
+	// Calculate remaining duration when paused
+	remainingDuration := pausedSub.EndDate.Sub(*pausedSub.PausedAt)
 
-	t.Run("Unpause extends subscription correctly", func(t *testing.T) {
-		pausedDuration := pausedSub.EndDate.Sub(*pausedSub.PausedAt)
+	// Wait a bit before unpausing to test time extension
+	time.Sleep(100 * time.Millisecond)
+	beforeUnpause := time.Now()
 
-		beforeUnpause := time.Now()
+	// Unpause
+	unpausedSub, err := s.subRepo.UnpauseSubscription(sub.ID.String())
+	s.NoError(err)
 
-		unpausedSub, err := repo.UnpauseSubscription(sub.ID.String())
-		assert.NoError(t, err)
-
-		expectedEnd := beforeUnpause.Add(pausedDuration)
-		assert.WithinDuration(t, expectedEnd, unpausedSub.EndDate, time.Second)
-		assert.Equal(t, models.StatusActive, unpausedSub.Status)
-		assert.Nil(t, unpausedSub.PausedAt)
-	})
+	// Verify end date was extended correctly
+	expectedEnd := beforeUnpause.Add(remainingDuration)
+	s.WithinDuration(expectedEnd, unpausedSub.EndDate, time.Second)
+	s.Equal(models.StatusActive, unpausedSub.Status)
+	s.Nil(unpausedSub.PausedAt)
 }

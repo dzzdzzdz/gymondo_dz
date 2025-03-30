@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 var (
@@ -27,13 +28,11 @@ type SubscriptionRepository interface {
 }
 
 type SubscriptionRepositoryImpl struct {
-	subscriptions map[uuid.UUID]*models.Subscription
+	db *gorm.DB
 }
 
-func NewSubscriptionRepository() SubscriptionRepository {
-	return &SubscriptionRepositoryImpl{
-		subscriptions: make(map[uuid.UUID]*models.Subscription),
-	}
+func NewSubscriptionRepository(db *gorm.DB) SubscriptionRepository {
+	return &SubscriptionRepositoryImpl{db: db}
 }
 
 func (r *SubscriptionRepositoryImpl) GetSubscription(id string) (*models.Subscription, error) {
@@ -42,18 +41,27 @@ func (r *SubscriptionRepositoryImpl) GetSubscription(id string) (*models.Subscri
 		return nil, ErrInvalidSubscriptionID
 	}
 
-	sub, exists := r.subscriptions[subID]
-	if !exists {
-		return nil, ErrSubscriptionNotFound
+	var subscription models.Subscription
+	result := r.db.Preload("Product").First(&subscription, "id = ?", subID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, ErrSubscriptionNotFound
+		}
+		return nil, result.Error
 	}
 
 	// auto-expire if needed
-	if sub.EndDate.Before(time.Now()) && sub.Status != models.StatusExpired {
-		sub.Status = models.StatusExpired
-		sub.UpdatedAt = time.Now()
+	if subscription.EndDate.Before(time.Now()) && subscription.Status != models.StatusExpired {
+		err := r.db.Model(&subscription).Updates(map[string]interface{}{
+			"status":     models.StatusExpired,
+			"updated_at": time.Now(),
+		}).Error
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return sub, nil
+	return &subscription, nil
 }
 
 func (r *SubscriptionRepositoryImpl) CreateSubscription(userID string, product *models.Product) (*models.Subscription, error) {
@@ -81,68 +89,128 @@ func (r *SubscriptionRepositoryImpl) CreateSubscription(userID string, product *
 		UpdatedAt: now,
 	}
 
-	r.subscriptions[newSub.ID] = newSub
+	err = r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(newSub).Error; err != nil {
+			return err
+		}
+		return tx.Preload("Product").First(newSub, "id = ?", newSub.ID).Error
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
 	return newSub, nil
 }
 
 func (r *SubscriptionRepositoryImpl) PauseSubscription(id string) (*models.Subscription, error) {
-	sub, err := r.GetSubscription(id)
+	var subscription models.Subscription
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		// Lock the record for update
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+			Preload("Product").
+			First(&subscription, "id = ?", id).
+			Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrSubscriptionNotFound
+			}
+			return err
+		}
+
+		if subscription.Status != models.StatusActive {
+			return ErrCannotPause
+		}
+
+		now := time.Now()
+		updates := map[string]interface{}{
+			"status":     models.StatusPaused,
+			"paused_at":  now,
+			"updated_at": now,
+		}
+
+		return tx.Model(&subscription).Updates(updates).Error
+	})
+
 	if err != nil {
 		return nil, err
 	}
 
-	if sub.Status != models.StatusActive {
-		return nil, ErrCannotPause
-	}
-
-	now := time.Now()
-	sub.Status = models.StatusPaused
-	sub.PausedAt = &now
-	sub.UpdatedAt = now
-
-	return sub, nil
+	return &subscription, nil
 }
 
 func (r *SubscriptionRepositoryImpl) UnpauseSubscription(id string) (*models.Subscription, error) {
-	sub, err := r.GetSubscription(id)
+	var subscription models.Subscription
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		// Lock the record for update
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+			Preload("Product").
+			First(&subscription, "id = ?", id).
+			Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrSubscriptionNotFound
+			}
+			return err
+		}
+
+		if subscription.Status != models.StatusPaused {
+			return ErrCannotUnpause
+		}
+
+		if subscription.PausedAt == nil {
+			return errors.New("paused subscription missing PausedAt timestamp")
+		}
+
+		remainingDuration := subscription.EndDate.Sub(*subscription.PausedAt)
+		now := time.Now()
+
+		updates := map[string]interface{}{
+			"status":     models.StatusActive,
+			"end_date":   now.Add(remainingDuration),
+			"paused_at":  nil,
+			"updated_at": now,
+		}
+
+		return tx.Model(&subscription).Updates(updates).Error
+	})
+
 	if err != nil {
 		return nil, err
 	}
 
-	if sub.Status != models.StatusPaused {
-		return nil, ErrCannotUnpause
-	}
-
-	if sub.PausedAt == nil {
-		return nil, errors.New("paused subscription missing PausedAt timestamp")
-	}
-	remainingDuration := sub.EndDate.Sub(*sub.PausedAt)
-
-	now := time.Now()
-	sub.Status = models.StatusActive
-	sub.EndDate = now.Add(remainingDuration)
-	sub.PausedAt = nil
-	sub.UpdatedAt = now
-
-	return sub, nil
+	return &subscription, nil
 }
 
 func (r *SubscriptionRepositoryImpl) CancelSubscription(id string) (*models.Subscription, error) {
-	sub, err := r.GetSubscription(id)
+	var subscription models.Subscription
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		// Lock the record for update
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+			Preload("Product").
+			First(&subscription, "id = ?", id).
+			Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrSubscriptionNotFound
+			}
+			return err
+		}
+
+		if subscription.Status == models.StatusCancelled {
+			return ErrCannotCancel
+		}
+
+		now := time.Now()
+		updates := map[string]interface{}{
+			"status":       models.StatusCancelled,
+			"cancelled_at": now,
+			"updated_at":   now,
+		}
+
+		return tx.Model(&subscription).Updates(updates).Error
+	})
+
 	if err != nil {
 		return nil, err
 	}
 
-	if sub.Status == models.StatusCancelled {
-		return nil, ErrCannotCancel
-	}
-
-	now := time.Now()
-	sub.Status = models.StatusCancelled
-	sub.CancelledAt = &now
-	sub.UpdatedAt = now
-
-	r.subscriptions[sub.ID] = sub // critical!
-
-	return sub, nil
+	return &subscription, nil
 }

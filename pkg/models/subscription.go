@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type SubscriptionStatus string
@@ -16,14 +17,16 @@ const (
 )
 
 type Subscription struct {
-	ID          uuid.UUID          `json:"id"`
-	UserID      uuid.UUID          `json:"user_id"` // (we'll hardcode a user for now)
-	ProductID   uuid.UUID          `json:"product_id"`
-	StartDate   time.Time          `json:"start_date"`
-	EndDate     time.Time          `json:"end_date"`
-	Status      SubscriptionStatus `json:"status"`
-	PausedAt    *time.Time         `json:"paused_at,omitempty"`
-	CancelledAt *time.Time         `json:"cancelled_at,omitempty"`
-	CreatedAt   time.Time          `json:"created_at"`
-	UpdatedAt   time.Time          `json:"updated_at"`
+	ID          uuid.UUID          `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()" json:"id"`
+	UserID      uuid.UUID          `gorm:"type:uuid;not null" json:"user_id"`
+	ProductID   uuid.UUID          `gorm:"type:uuid;not null" json:"product_id"`
+	Product     *Product           `gorm:"foreignKey:ProductID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"product,omitempty"`
+	StartDate   time.Time          `gorm:"not null" json:"start_date"`
+	EndDate     time.Time          `gorm:"not null" json:"end_date"`
+	Status      SubscriptionStatus `gorm:"type:varchar(20);not null;default:'active'" json:"status"`
+	PausedAt    *time.Time         `gorm:"index" json:"paused_at,omitempty"`
+	CancelledAt *time.Time         `gorm:"index" json:"cancelled_at,omitempty"`
+	CreatedAt   time.Time          `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt   time.Time          `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt   gorm.DeletedAt     `gorm:"index" json:"-"` // Explicitly ignored in JSON
 }
