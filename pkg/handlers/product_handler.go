@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"gymondo_dz/pkg/api"
 	"gymondo_dz/pkg/repositories"
 
 	"github.com/gin-gonic/gin"
@@ -20,13 +21,14 @@ func NewProductHandler(repo repositories.ProductRepository) *ProductHandler {
 func (h *ProductHandler) GetProducts(c *gin.Context) {
 	products, err := h.repo.GetProducts()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}) // TODO: improve errors
+		c.JSON(http.StatusInternalServerError, api.ErrorResponse("failed to fetch products", "product_error"))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": products, // wrapper so we can add metadata in the future
+	response := api.SuccessResponse(products, &api.Meta{
+		Total: len(products),
 	})
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *ProductHandler) GetProduct(c *gin.Context) {
@@ -35,21 +37,12 @@ func (h *ProductHandler) GetProduct(c *gin.Context) {
 
 	switch {
 	case errors.Is(err, repositories.ErrProductNotFound):
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": err.Error(),
-		})
+		c.JSON(http.StatusNotFound, api.ErrorResponse("product not found", "not_found"))
 	case errors.Is(err, repositories.ErrInvalidProductID):
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "invalid request",
-			"details": err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, api.ErrorResponse("invalid product ID", "invalid_id"))
 	case err != nil:
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "internal server error",
-		})
+		c.JSON(http.StatusInternalServerError, api.ErrorResponse("internal server error", "internal_error"))
 	default:
-		c.JSON(http.StatusOK, gin.H{
-			"data": product,
-		})
+		c.JSON(http.StatusOK, api.SuccessResponse(product, nil))
 	}
 }

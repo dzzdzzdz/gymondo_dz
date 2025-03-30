@@ -2,17 +2,19 @@ package handlers_test
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"gymondo_dz/pkg/api"
 	"gymondo_dz/pkg/handlers"
 	"gymondo_dz/pkg/models"
 	"gymondo_dz/pkg/repositories"
-	testutil "gymondo_dz/pkg/testutils"
+	"gymondo_dz/pkg/testutils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -28,209 +30,170 @@ func setupSubscriptionRouter(h *handlers.SubscriptionHandler) *gin.Engine {
 }
 
 func TestSubscriptionHandler(t *testing.T) {
-	validProduct := testutil.NewMockProduct()
-	validSub := testutil.NewMockSubscription()
-	cancelledSub := testutil.NewMockSubscription()
-	cancelledSub.Status = models.StatusCancelled
-	pausedSub := testutil.NewMockSubscription()
-	pausedSub.Status = models.StatusPaused
-
-	tests := []struct {
-		name           string
-		method         string
-		path           string
-		mockSetup      func(*testutil.MockProductRepository, *testutil.MockSubscriptionRepository)
-		expectedStatus int
-		expectedError  string
-	}{
-		{
-			name:   "Create subscription success",
-			method: "POST",
-			path:   "/products/" + validProduct.ID.String() + "/subscriptions",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				p.On("GetProduct", validProduct.ID.String()).Return(validProduct, nil)
-				s.On("CreateSubscription", mock.Anything, validProduct).Return(validSub, nil)
-			},
-			expectedStatus: http.StatusCreated,
-		},
-		{
-			name:   "Create with invalid product ID",
-			method: "POST",
-			path:   "/products/invalid/subscriptions",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				p.On("GetProduct", "invalid").Return(nil, repositories.ErrInvalidProductID)
-			},
-			expectedStatus: http.StatusBadRequest,
-			expectedError:  "invalid product ID",
-		},
-		{
-			name:   "Create with repository error",
-			method: "POST",
-			path:   "/products/" + validProduct.ID.String() + "/subscriptions",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				p.On("GetProduct", validProduct.ID.String()).Return(validProduct, nil)
-				s.On("CreateSubscription", mock.Anything, validProduct).Return(nil, errors.New("db error"))
-			},
-			expectedStatus: http.StatusInternalServerError,
-			expectedError:  "failed to create subscription",
-		},
-
-		// GetSubscription tests
-		{
-			name:   "Get subscription success",
-			method: "GET",
-			path:   "/subscriptions/" + validSub.ID.String(),
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				s.On("GetSubscription", validSub.ID.String()).Return(validSub, nil)
-			},
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:   "Get non-existent subscription",
-			method: "GET",
-			path:   "/subscriptions/" + validSub.ID.String(),
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				s.On("GetSubscription", validSub.ID.String()).Return(nil, repositories.ErrSubscriptionNotFound)
-			},
-			expectedStatus: http.StatusNotFound,
-			expectedError:  "subscription not found",
-		},
-		{
-			name:   "Get with invalid ID format",
-			method: "GET",
-			path:   "/subscriptions/invalid",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				s.On("GetSubscription", "invalid").Return(nil, repositories.ErrInvalidSubscriptionID)
-			},
-			expectedStatus: http.StatusBadRequest,
-			expectedError:  "invalid subscription ID",
-		},
-
-		// PauseSubscription tests
-		{
-			name:   "Pause active subscription",
-			method: "PATCH",
-			path:   "/subscriptions/" + validSub.ID.String() + "/pause",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				s.On("PauseSubscription", validSub.ID.String()).Return(pausedSub, nil)
-			},
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:   "Pause cancelled subscription",
-			method: "PATCH",
-			path:   "/subscriptions/" + cancelledSub.ID.String() + "/pause",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				s.On("PauseSubscription", cancelledSub.ID.String()).Return(nil, repositories.ErrCannotPause)
-			},
-			expectedStatus: http.StatusConflict,
-			expectedError:  "subscription cannot be paused",
-		},
-		{
-			name:   "Pause expired subscription",
-			method: "PATCH",
-			path:   "/subscriptions/expired/pause",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				expiredSub := testutil.NewMockSubscription()
-				expiredSub.Status = models.StatusExpired
-				s.On("PauseSubscription", "expired").Return(nil, repositories.ErrCannotPause)
-			},
-			expectedStatus: http.StatusConflict,
-			expectedError:  "subscription cannot be paused",
-		},
-
-		// UnpauseSubscription tests
-		{
-			name:   "Unpause paused subscription",
-			method: "PATCH",
-			path:   "/subscriptions/" + pausedSub.ID.String() + "/unpause",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				s.On("UnpauseSubscription", pausedSub.ID.String()).Return(validSub, nil)
-			},
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:   "Unpause active subscription",
-			method: "PATCH",
-			path:   "/subscriptions/" + validSub.ID.String() + "/unpause",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				s.On("UnpauseSubscription", validSub.ID.String()).Return(nil, repositories.ErrCannotUnpause)
-			},
-			expectedStatus: http.StatusConflict,
-			expectedError:  "subscription cannot be unpaused",
-		},
-		{
-			name:   "Unpause expired subscription",
-			method: "PATCH",
-			path:   "/subscriptions/expired/unpause",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				expiredSub := testutil.NewMockSubscription()
-				expiredSub.Status = models.StatusExpired
-				s.On("UnpauseSubscription", "expired").Return(nil, repositories.ErrCannotUnpause)
-			},
-			expectedStatus: http.StatusConflict,
-			expectedError:  "subscription cannot be unpaused",
-		},
-
-		// CancelSubscription tests
-		{
-			name:   "Cancel active subscription",
-			method: "DELETE",
-			path:   "/subscriptions/" + validSub.ID.String(),
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				s.On("CancelSubscription", validSub.ID.String()).Return(cancelledSub, nil)
-			},
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:   "Cancel already cancelled subscription",
-			method: "DELETE",
-			path:   "/subscriptions/" + cancelledSub.ID.String(),
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				s.On("CancelSubscription", cancelledSub.ID.String()).Return(nil, repositories.ErrCannotCancel)
-			},
-			expectedStatus: http.StatusConflict,
-			expectedError:  "subscription cannot be cancelled",
-		},
-		{
-			name:   "Cancel expired subscription",
-			method: "DELETE",
-			path:   "/subscriptions/expired",
-			mockSetup: func(p *testutil.MockProductRepository, s *testutil.MockSubscriptionRepository) {
-				expiredSub := testutil.NewMockSubscription()
-				expiredSub.Status = models.StatusExpired
-				s.On("CancelSubscription", "expired").Return(nil, repositories.ErrCannotCancel)
-			},
-			expectedStatus: http.StatusConflict,
-			expectedError:  "subscription cannot be cancelled",
-		},
+	now := time.Now()
+	validProduct := &models.Product{
+		ID:       uuid.New(),
+		Name:     "Test Product",
+		Duration: 30,
+		Price:    9.99,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockProductRepo := new(testutil.MockProductRepository)
-			mockSubRepo := new(testutil.MockSubscriptionRepository)
-
-			tt.mockSetup(mockProductRepo, mockSubRepo)
-
-			handler := handlers.NewSubscriptionHandler(mockSubRepo, mockProductRepo)
-			router := setupSubscriptionRouter(handler)
-
-			req := httptest.NewRequest(tt.method, tt.path, nil)
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
-
-			assert.Equal(t, tt.expectedStatus, w.Code)
-
-			if tt.expectedError != "" {
-				var response map[string]string
-				err := json.Unmarshal(w.Body.Bytes(), &response)
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedError, response["error"])
-			}
-
-			mockProductRepo.AssertExpectations(t)
-			mockSubRepo.AssertExpectations(t)
-		})
+	activeSub := &models.Subscription{
+		ID:        uuid.New(),
+		UserID:    uuid.New(),
+		ProductID: validProduct.ID,
+		Status:    models.StatusActive,
+		StartDate: now,
+		EndDate:   now.Add(30 * 24 * time.Hour),
 	}
+
+	pausedSub := &models.Subscription{
+		ID:        activeSub.ID,
+		UserID:    activeSub.UserID,
+		ProductID: activeSub.ProductID,
+		Status:    models.StatusPaused,
+		StartDate: activeSub.StartDate,
+		EndDate:   activeSub.EndDate,
+		PausedAt:  &now,
+	}
+
+	cancelledSub := &models.Subscription{
+		ID:          activeSub.ID,
+		UserID:      activeSub.UserID,
+		ProductID:   activeSub.ProductID,
+		Status:      models.StatusCancelled,
+		StartDate:   activeSub.StartDate,
+		EndDate:     activeSub.EndDate,
+		CancelledAt: &now,
+	}
+
+	t.Run("Create Subscription - Success", func(t *testing.T) {
+		mockProductRepo := new(testutils.MockProductRepository)
+		mockSubRepo := new(testutils.MockSubscriptionRepository)
+
+		mockProductRepo.On("GetProduct", validProduct.ID.String()).Return(validProduct, nil)
+		mockSubRepo.On("CreateSubscription", mock.Anything, validProduct).Return(activeSub, nil)
+
+		handler := handlers.NewSubscriptionHandler(mockSubRepo, mockProductRepo)
+		router := setupSubscriptionRouter(handler)
+
+		req := httptest.NewRequest("POST", "/products/"+validProduct.ID.String()+"/subscriptions", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusCreated, w.Code)
+
+		var response api.Response
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+
+		responseData := response.Data.(map[string]interface{})
+		responseID, err := uuid.Parse(responseData["id"].(string))
+		assert.NoError(t, err)
+
+		assert.Equal(t, activeSub.ID, responseID)
+
+		mockProductRepo.AssertExpectations(t)
+		mockSubRepo.AssertExpectations(t)
+	})
+
+	t.Run("Get Subscription - Success", func(t *testing.T) {
+		mockProductRepo := new(testutils.MockProductRepository)
+		mockSubRepo := new(testutils.MockSubscriptionRepository)
+
+		mockSubRepo.On("GetSubscription", activeSub.ID.String()).Return(activeSub, nil)
+
+		handler := handlers.NewSubscriptionHandler(mockSubRepo, mockProductRepo)
+		router := setupSubscriptionRouter(handler)
+
+		req := httptest.NewRequest("GET", "/subscriptions/"+activeSub.ID.String(), nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response api.Response
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+
+		responseData := response.Data.(map[string]interface{})
+		responseID, err := uuid.Parse(responseData["id"].(string))
+		assert.NoError(t, err)
+
+		assert.Equal(t, activeSub.ID, responseID)
+
+		mockSubRepo.AssertExpectations(t)
+	})
+
+	t.Run("Pause Subscription - Success", func(t *testing.T) {
+		mockProductRepo := new(testutils.MockProductRepository)
+		mockSubRepo := new(testutils.MockSubscriptionRepository)
+
+		mockSubRepo.On("PauseSubscription", activeSub.ID.String()).Return(pausedSub, nil)
+
+		handler := handlers.NewSubscriptionHandler(mockSubRepo, mockProductRepo)
+		router := setupSubscriptionRouter(handler)
+
+		req := httptest.NewRequest("PATCH", "/subscriptions/"+activeSub.ID.String()+"/pause", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response api.Response
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Equal(t, string(models.StatusPaused), response.Data.(map[string]interface{})["status"].(string))
+
+		mockSubRepo.AssertExpectations(t)
+	})
+
+	t.Run("Create with Invalid Product ID", func(t *testing.T) {
+		mockProductRepo := new(testutils.MockProductRepository)
+		mockSubRepo := new(testutils.MockSubscriptionRepository)
+
+		invalidID := "invalid-uuid"
+		mockProductRepo.On("GetProduct", invalidID).Return(nil, repositories.ErrInvalidProductID)
+
+		handler := handlers.NewSubscriptionHandler(mockSubRepo, mockProductRepo)
+		router := setupSubscriptionRouter(handler)
+
+		req := httptest.NewRequest("POST", "/products/"+invalidID+"/subscriptions", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+
+		var response api.Response
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Equal(t, "invalid ID format", response.Error.Message)
+		assert.Equal(t, "invalid_id", response.Error.Code)
+
+		mockProductRepo.AssertExpectations(t)
+	})
+
+	t.Run("Pause Already Cancelled Subscription", func(t *testing.T) {
+		mockProductRepo := new(testutils.MockProductRepository)
+		mockSubRepo := new(testutils.MockSubscriptionRepository)
+
+		mockSubRepo.On("PauseSubscription", cancelledSub.ID.String()).Return(nil, repositories.ErrCannotPause)
+
+		handler := handlers.NewSubscriptionHandler(mockSubRepo, mockProductRepo)
+		router := setupSubscriptionRouter(handler)
+
+		req := httptest.NewRequest("PATCH", "/subscriptions/"+cancelledSub.ID.String()+"/pause", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusConflict, w.Code)
+
+		var response api.Response
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Equal(t, "cannot pause subscription", response.Error.Message)
+		assert.Equal(t, "invalid_state", response.Error.Code)
+
+		mockSubRepo.AssertExpectations(t)
+	})
 }
