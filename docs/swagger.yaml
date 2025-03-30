@@ -1,4 +1,4 @@
-basePath: /api/v1
+basePath: /
 definitions:
   api.Error:
     properties:
@@ -37,6 +37,11 @@ definitions:
       name:
         type: string
       price:
+        type: number
+      tax_rate:
+        type: number
+      total_price:
+        description: ignored by GORM, only for JSON response
         type: number
       updated_at:
         type: string
@@ -99,44 +104,84 @@ info:
   title: Gymondo Subscription API
   version: "1.0"
 paths:
-  /products/{product_id}/subscriptions:
-    post:
-      consumes:
-      - application/json
-      description: Create subscription for a product
+  /products:
+    get:
+      description: Get a list of all available subscription products
       parameters:
-      - description: Product ID
-        in: path
-        name: product_id
-        required: true
-        type: string
+      - default: 1
+        description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - default: 10
+        description: Items per page
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
       produces:
       - application/json
       responses:
-        "201":
-          description: Created
+        "200":
+          description: Paginated list of products
           schema:
             allOf:
             - $ref: '#/definitions/api.Response'
             - properties:
                 data:
-                  $ref: '#/definitions/models.Subscription'
+                  items:
+                    $ref: '#/definitions/models.Product'
+                  type: array
+                meta:
+                  $ref: '#/definitions/api.Meta'
+              type: object
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: List all products
+      tags:
+      - products
+  /products/{id}:
+    get:
+      description: Get details for a specific product
+      parameters:
+      - description: Product ID
+        example: '"d337a556-6fd6-47b9-b07f-4e60b9a78d2c"'
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Product details
+          schema:
+            allOf:
+            - $ref: '#/definitions/api.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.Product'
               type: object
         "400":
-          description: Bad Request
+          description: Invalid ID format
           schema:
             $ref: '#/definitions/api.Response'
         "404":
-          description: Not Found
+          description: Product not found
           schema:
             $ref: '#/definitions/api.Response'
         "500":
-          description: Internal Server Error
+          description: Internal server error
           schema:
             $ref: '#/definitions/api.Response'
-      summary: Create a new subscription
+      summary: Get product details
       tags:
-      - subscriptions
+      - products
   /subscriptions/{id}:
     delete:
       description: Cancel subscription by ID
@@ -276,4 +321,44 @@ paths:
       summary: Unpause subscription
       tags:
       - subscriptions
+  /subscriptions/{product_id}:
+    post:
+      consumes:
+      - application/json
+      description: Create subscription for a product
+      parameters:
+      - description: Product ID
+        in: path
+        name: product_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/api.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.Subscription'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Create a new subscription
+      tags:
+      - subscriptions
+schemes:
+- http
 swagger: "2.0"

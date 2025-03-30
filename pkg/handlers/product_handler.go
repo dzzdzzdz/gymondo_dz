@@ -21,7 +21,7 @@ func NewProductHandler(repo repositories.ProductRepository) *ProductHandler {
 
 // @Summary List all products
 // @Description Get a list of all available subscription products
-// @Tags Products
+// @Tags products
 // @Produce json
 // @Param page query int false "Page number" default(1) minimum(1)
 // @Param limit query int false "Items per page" default(10) minimum(1) maximum(100)
@@ -55,7 +55,7 @@ func (h *ProductHandler) GetProducts(c *gin.Context) {
 
 // @Summary Get product details
 // @Description Get details for a specific product
-// @Tags Products
+// @Tags products
 // @Produce json
 // @Param id path string true "Product ID" format(uuid) example("d337a556-6fd6-47b9-b07f-4e60b9a78d2c")
 // @Success 200 {object} api.Response{data=models.Product} "Product details"

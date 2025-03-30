@@ -23,7 +23,8 @@ import (
 // @contact.email support@gymondo.com
 // @license.name MIT
 // @host localhost:8080
-// @BasePath /api/v1
+// @BasePath /
+// @schemes http
 func main() {
 	err := godotenv.Load()
 	if err != nil {
