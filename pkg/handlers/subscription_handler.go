@@ -26,18 +26,17 @@ func NewSubscriptionHandler(
 	}
 }
 
-func (h *SubscriptionHandler) GetSubscription(c *gin.Context) {
-	subID := c.Param("id")
-
-	sub, err := h.repo.GetSubscription(subID)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, api.SuccessResponse(sub, nil))
-}
-
+// @Summary Create a new subscription
+// @Description Create subscription for a product
+// @Tags subscriptions
+// @Accept  json
+// @Produce  json
+// @Param product_id path string true "Product ID"
+// @Success 201 {object} api.Response{data=models.Subscription}
+// @Failure 400 {object} api.Response
+// @Failure 404 {object} api.Response
+// @Failure 500 {object} api.Response
+// @Router /subscriptions/{product_id} [post]
 func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 	productID := c.Param("product_id")
 
@@ -59,6 +58,37 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 	c.JSON(http.StatusCreated, api.SuccessResponse(sub, nil))
 }
 
+// @Summary Get subscription details
+// @Description Get subscription by ID
+// @Tags subscriptions
+// @Produce  json
+// @Param id path string true "Subscription ID"
+// @Success 200 {object} api.Response{data=models.Subscription}
+// @Failure 400 {object} api.Response
+// @Failure 404 {object} api.Response
+// @Router /subscriptions/{id} [get]
+func (h *SubscriptionHandler) GetSubscription(c *gin.Context) {
+	subID := c.Param("id")
+
+	sub, err := h.repo.GetSubscription(subID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, api.SuccessResponse(sub, nil))
+}
+
+// @Summary Pause subscription
+// @Description Pause subscription by ID
+// @Tags subscriptions
+// @Produce  json
+// @Param id path string true "Subscription ID"
+// @Success 200 {object} api.Response{data=models.Subscription}
+// @Failure 400 {object} api.Response
+// @Failure 404 {object} api.Response
+// @Failure 409 {object} api.Response
+// @Router /subscriptions/{id}/pause [patch]
 func (h *SubscriptionHandler) PauseSubscription(c *gin.Context) {
 	subID := c.Param("id")
 
@@ -71,6 +101,16 @@ func (h *SubscriptionHandler) PauseSubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, api.SuccessResponse(sub, nil))
 }
 
+// @Summary Unpause subscription
+// @Description Unpause subscription by ID
+// @Tags subscriptions
+// @Produce  json
+// @Param id path string true "Subscription ID"
+// @Success 200 {object} api.Response{data=models.Subscription}
+// @Failure 400 {object} api.Response
+// @Failure 404 {object} api.Response
+// @Failure 409 {object} api.Response
+// @Router /subscriptions/{id}/unpause [patch]
 func (h *SubscriptionHandler) UnpauseSubscription(c *gin.Context) {
 	subID := c.Param("id")
 
@@ -83,6 +123,16 @@ func (h *SubscriptionHandler) UnpauseSubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, api.SuccessResponse(sub, nil))
 }
 
+// @Summary Cancel subscription
+// @Description Cancel subscription by ID
+// @Tags subscriptions
+// @Produce  json
+// @Param id path string true "Subscription ID"
+// @Success 200 {object} api.Response{data=models.Subscription}
+// @Failure 400 {object} api.Response
+// @Failure 404 {object} api.Response
+// @Failure 409 {object} api.Response
+// @Router /subscriptions/{id} [delete]
 func (h *SubscriptionHandler) CancelSubscription(c *gin.Context) {
 	subID := c.Param("id")
 

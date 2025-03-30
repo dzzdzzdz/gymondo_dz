@@ -1,0 +1,279 @@
+basePath: /api/v1
+definitions:
+  api.Error:
+    properties:
+      code:
+        type: string
+      message:
+        type: string
+    type: object
+  api.Meta:
+    properties:
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  api.Response:
+    properties:
+      data: {}
+      error:
+        $ref: '#/definitions/api.Error'
+      meta:
+        $ref: '#/definitions/api.Meta'
+    type: object
+  models.Product:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      duration:
+        $ref: '#/definitions/models.SubscriptionDuration'
+      id:
+        type: string
+      name:
+        type: string
+      price:
+        type: number
+      updated_at:
+        type: string
+    type: object
+  models.Subscription:
+    properties:
+      cancelled_at:
+        type: string
+      created_at:
+        type: string
+      end_date:
+        type: string
+      id:
+        type: string
+      paused_at:
+        type: string
+      product:
+        $ref: '#/definitions/models.Product'
+      product_id:
+        type: string
+      start_date:
+        type: string
+      status:
+        $ref: '#/definitions/models.SubscriptionStatus'
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  models.SubscriptionDuration:
+    enum:
+    - 30
+    - 365
+    - 36500
+    type: integer
+    x-enum-varnames:
+    - DurationMonth
+    - DurationYear
+    - DurationLifetime
+  models.SubscriptionStatus:
+    enum:
+    - active
+    - paused
+    - cancelled
+    - expired
+    type: string
+    x-enum-varnames:
+    - StatusActive
+    - StatusPaused
+    - StatusCancelled
+    - StatusExpired
+host: localhost:8080
+info:
+  contact:
+    email: support@gymondo.com
+    name: API Support
+  description: API for managing gym subscriptions
+  license:
+    name: MIT
+  title: Gymondo Subscription API
+  version: "1.0"
+paths:
+  /products/{product_id}/subscriptions:
+    post:
+      consumes:
+      - application/json
+      description: Create subscription for a product
+      parameters:
+      - description: Product ID
+        in: path
+        name: product_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/api.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.Subscription'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Create a new subscription
+      tags:
+      - subscriptions
+  /subscriptions/{id}:
+    delete:
+      description: Cancel subscription by ID
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/api.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.Subscription'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Cancel subscription
+      tags:
+      - subscriptions
+    get:
+      description: Get subscription by ID
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/api.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.Subscription'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Get subscription details
+      tags:
+      - subscriptions
+  /subscriptions/{id}/pause:
+    patch:
+      description: Pause subscription by ID
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/api.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.Subscription'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Pause subscription
+      tags:
+      - subscriptions
+  /subscriptions/{id}/unpause:
+    patch:
+      description: Unpause subscription by ID
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/api.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.Subscription'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Unpause subscription
+      tags:
+      - subscriptions
+swagger: "2.0"
