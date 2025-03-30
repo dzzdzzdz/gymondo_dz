@@ -21,18 +21,21 @@ func SeedProducts(db *gorm.DB) error {
 			Description: "Basic monthly membership",
 			Duration:    models.DurationMonth,
 			Price:       29.99,
+			TaxRate:     0.10,
 		},
 		{
 			Name:        "1-Year Membership",
 			Description: "Yearly membership with small discount",
 			Duration:    models.DurationYear,
 			Price:       79.99,
+			TaxRate:     0.10,
 		},
 		{
 			Name:        "Lifetime Membership",
 			Description: "Lifetime membership with best discount",
 			Duration:    models.DurationLifetime,
 			Price:       249.99,
+			TaxRate:     0.10,
 		},
 	}
 
