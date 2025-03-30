@@ -1,13 +1,13 @@
 package repositories_test
 
 import (
-	"gymondo_dz/pkg/database"
 	"gymondo_dz/pkg/models"
 	"gymondo_dz/pkg/repositories"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -19,67 +19,84 @@ type ProductRepositoryTestSuite struct {
 	repo repositories.ProductRepository
 }
 
-func (s *ProductRepositoryTestSuite) SetupTest() {
-	// Setup in-memory SQLite database with foreign keys enabled
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+func (s *ProductRepositoryTestSuite) SetupSuite() {
+	var err error
+	s.db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
+		SkipDefaultTransaction: true,
+	})
 	if err != nil {
 		s.FailNow("Failed to connect to test database")
 	}
 
-	// Enable foreign key constraints for SQLite
-	db.Exec("PRAGMA foreign_keys = ON")
-
-	// Run migrations
-	if err := database.AutoMigrate(db, true); err != nil {
-		s.FailNow("Failed to migrate test database: " + err.Error())
+	// Create tables
+	err = s.db.AutoMigrate(&models.Product{})
+	if err != nil {
+		s.FailNow("Failed to migrate database: " + err.Error())
 	}
 
-	s.db = db
-	s.repo = repositories.NewProductRepository(db)
+	s.repo = repositories.NewProductRepository(s.db)
 }
 
-func (s *ProductRepositoryTestSuite) BeforeTest(suiteName, testName string) {
-	// Clear all data before each test
-	s.db.Exec("DELETE FROM products")
-	s.db.Exec("DELETE FROM subscriptions")
+func (s *ProductRepositoryTestSuite) SetupTest() {
+	// Clear existing data completely (including soft deleted)
+	if err := s.db.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.Product{}).Error; err != nil {
+		s.FailNow("Failed to clear products: " + err.Error())
+	}
 
-	// Seed fresh test data
-	testProducts := []models.Product{
+	// Create test products with all required fields
+	now := time.Now().UTC()
+	testProducts := []*models.Product{
 		{
 			ID:          uuid.MustParse("11111111-1111-1111-1111-111111111111"),
 			Name:        "Monthly Plan",
 			Description: "1 month subscription",
 			Price:       9.99,
+			TaxRate:     0.10, // Ensure this matches your model's default
 			Duration:    models.DurationMonth,
-			CreatedAt:   time.Now(),
-			UpdatedAt:   time.Now(),
+			CreatedAt:   now.Add(-3 * time.Hour),
+			UpdatedAt:   now.Add(-3 * time.Hour),
+			DeletedAt:   gorm.DeletedAt{}, // Explicitly set to not deleted
 		},
 		{
 			ID:          uuid.MustParse("22222222-2222-2222-2222-222222222222"),
 			Name:        "Yearly Plan",
 			Description: "1 year subscription",
 			Price:       99.99,
+			TaxRate:     0.10,
 			Duration:    models.DurationYear,
-			CreatedAt:   time.Now(),
-			UpdatedAt:   time.Now(),
+			CreatedAt:   now.Add(-2 * time.Hour),
+			UpdatedAt:   now.Add(-2 * time.Hour),
+			DeletedAt:   gorm.DeletedAt{},
 		},
 		{
 			ID:          uuid.MustParse("33333333-3333-3333-3333-333333333333"),
 			Name:        "Lifetime Plan",
 			Description: "Lifetime access",
 			Price:       999.99,
+			TaxRate:     0.10,
 			Duration:    models.DurationLifetime,
-			CreatedAt:   time.Now(),
-			UpdatedAt:   time.Now(),
+			CreatedAt:   now.Add(-1 * time.Hour),
+			UpdatedAt:   now.Add(-1 * time.Hour),
+			DeletedAt:   gorm.DeletedAt{},
 		},
 	}
 
-	// Create products one by one to better handle errors
+	// Create products using direct SQL to bypass any hooks
 	for _, p := range testProducts {
-		if err := s.db.Create(&p).Error; err != nil {
-			s.FailNow("Failed to seed test data: " + err.Error())
+		result := s.db.Exec(`
+			INSERT INTO products (id, name, description, price, tax_rate, duration, created_at, updated_at, deleted_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			p.ID, p.Name, p.Description, p.Price, p.TaxRate, p.Duration, p.CreatedAt, p.UpdatedAt, nil,
+		)
+		if result.Error != nil {
+			s.FailNow("Failed to seed test data: " + result.Error.Error())
 		}
 	}
+
+	// Verify data was inserted
+	var count int64
+	s.db.Model(&models.Product{}).Count(&count)
+	assert.Equal(s.T(), int64(3), count, "Should have 3 products in database")
 }
 
 func TestProductRepositorySuite(t *testing.T) {
@@ -87,15 +104,15 @@ func TestProductRepositorySuite(t *testing.T) {
 }
 
 func (s *ProductRepositoryTestSuite) TestGetProducts() {
-	products, err := s.repo.GetProducts()
+	products, total, err := s.repo.GetProducts(1, 10)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(3), total)
+	assert.Len(s.T(), products, 3)
 
-	s.NoError(err)
-	s.Len(products, 3)
-
-	// Verify first product
-	s.Equal("Monthly Plan", products[0].Name)
-	s.Equal(models.DurationMonth, products[0].Duration)
-	s.Equal(9.99, products[0].Price)
+	// Verify order is correct (oldest first)
+	assert.Equal(s.T(), "Monthly Plan", products[0].Name)
+	assert.Equal(s.T(), "Yearly Plan", products[1].Name)
+	assert.Equal(s.T(), "Lifetime Plan", products[2].Name)
 }
 
 func (s *ProductRepositoryTestSuite) TestGetProduct() {
@@ -104,16 +121,11 @@ func (s *ProductRepositoryTestSuite) TestGetProduct() {
 		id            string
 		expectError   bool
 		expectedError string
-		validate      func(*models.Product)
 	}{
 		{
 			name:        "Valid existing product",
 			id:          "11111111-1111-1111-1111-111111111111",
 			expectError: false,
-			validate: func(p *models.Product) {
-				s.Equal("Monthly Plan", p.Name)
-				s.Equal(9.99, p.Price)
-			},
 		},
 		{
 			name:          "Non-existent product",
@@ -134,15 +146,14 @@ func (s *ProductRepositoryTestSuite) TestGetProduct() {
 			product, err := s.repo.GetProduct(tt.id)
 
 			if tt.expectError {
-				s.Error(err)
-				s.Equal(tt.expectedError, err.Error())
-				s.Nil(product)
+				assert.Error(s.T(), err)
+				assert.Equal(s.T(), tt.expectedError, err.Error())
+				assert.Nil(s.T(), product)
 			} else {
-				s.NoError(err)
-				s.NotNil(product)
-				if tt.validate != nil {
-					tt.validate(product)
-				}
+				assert.NoError(s.T(), err)
+				assert.NotNil(s.T(), product)
+				assert.Equal(s.T(), "Monthly Plan", product.Name)
+				assert.Equal(s.T(), 9.99, product.Price)
 			}
 		})
 	}

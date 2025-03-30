@@ -24,15 +24,20 @@ func TestProductHandler(t *testing.T) {
 		Name:        "Test Product",
 		Description: "Test Description",
 		Price:       9.99,
-		Duration:    30,
+		TaxRate:     0.10,
+		Duration:    models.DurationMonth,
 		CreatedAt:   fixedTime,
 		UpdatedAt:   fixedTime,
 	}
+
+	// Apply AfterFind hook manually since we're mocking
+	mockProduct.TotalPrice = mockProduct.Price + (mockProduct.Price * mockProduct.TaxRate)
 
 	tests := []struct {
 		name           string
 		method         string
 		path           string
+		query          string
 		mockSetup      func(*testutils.MockProductRepository)
 		expectedStatus int
 		expectedBody   string
@@ -41,11 +46,23 @@ func TestProductHandler(t *testing.T) {
 			name:   "GetProducts success",
 			method: "GET",
 			path:   "/products",
+			query:  "page=1&limit=10",
 			mockSetup: func(m *testutils.MockProductRepository) {
-				m.On("GetProducts").Return([]models.Product{mockProduct}, nil)
+				m.On("GetProducts", 1, 10).Return([]models.Product{mockProduct}, int64(1), nil)
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `{"data":[{"id":"465dc700-666c-4b7a-80e2-d9e2967f4442","name":"Test Product","description":"Test Description","price":9.99,"duration":30,"created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}],"meta":{"total":1}}`,
+			expectedBody:   `{"data":[{"id":"465dc700-666c-4b7a-80e2-d9e2967f4442","name":"Test Product","description":"Test Description","price":9.99,"tax_rate":0.1,"total_price":10.989,"duration":30,"created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}],"meta":{"total":1,"page":1,"limit":10}}`,
+		},
+		{
+			name:   "GetProducts default pagination",
+			method: "GET",
+			path:   "/products",
+			query:  "",
+			mockSetup: func(m *testutils.MockProductRepository) {
+				m.On("GetProducts", 1, 10).Return([]models.Product{mockProduct}, int64(1), nil)
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   `{"data":[{"id":"465dc700-666c-4b7a-80e2-d9e2967f4442","name":"Test Product","description":"Test Description","price":9.99,"tax_rate":0.1,"total_price":10.989,"duration":30,"created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}],"meta":{"total":1,"page":1,"limit":10}}`,
 		},
 		{
 			name:   "GetProduct success",
@@ -55,7 +72,7 @@ func TestProductHandler(t *testing.T) {
 				m.On("GetProduct", "465dc700-666c-4b7a-80e2-d9e2967f4442").Return(&mockProduct, nil)
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `{"data":{"id":"465dc700-666c-4b7a-80e2-d9e2967f4442","name":"Test Product","description":"Test Description","price":9.99,"duration":30,"created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}}`,
+			expectedBody:   `{"data":{"id":"465dc700-666c-4b7a-80e2-d9e2967f4442","name":"Test Product","description":"Test Description","price":9.99,"tax_rate":0.1,"total_price":10.989,"duration":30,"created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}}`,
 		},
 		{
 			name:   "GetProduct not found",
@@ -65,7 +82,18 @@ func TestProductHandler(t *testing.T) {
 				m.On("GetProduct", "465dc700-666c-4b7a-80e2-d9e2967f4442").Return(nil, repositories.ErrProductNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
-			expectedBody:   `{"error":{"code":"not_found","message":"product not found"}}`,
+			expectedBody:   `{"error":{"message":"product not found","code":"not_found"}}`,
+		},
+		{
+			name:   "GetProduct invalid UUID",
+			method: "GET",
+			path:   "/products/invalid-uuid",
+			mockSetup: func(m *testutils.MockProductRepository) {
+				// Expect the repository to return ErrInvalidProductID
+				m.On("GetProduct", "invalid-uuid").Return(nil, repositories.ErrInvalidProductID)
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":{"message":"invalid product ID","code":"invalid_id"}}`,
 		},
 	}
 
@@ -81,8 +109,12 @@ func TestProductHandler(t *testing.T) {
 			router.GET("/products", handler.GetProducts)
 			router.GET("/products/:id", handler.GetProduct)
 
-			// Create request
-			req := httptest.NewRequest(tt.method, tt.path, nil)
+			// Create request with query parameters if any
+			fullPath := tt.path
+			if tt.query != "" {
+				fullPath = tt.path + "?" + tt.query
+			}
+			req := httptest.NewRequest(tt.method, fullPath, nil)
 			w := httptest.NewRecorder()
 
 			// Serve request

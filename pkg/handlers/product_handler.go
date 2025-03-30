@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"gymondo_dz/pkg/api"
 	"gymondo_dz/pkg/repositories"
@@ -22,18 +23,25 @@ func NewProductHandler(repo repositories.ProductRepository) *ProductHandler {
 // @Description Get a list of all available subscription products
 // @Tags Products
 // @Produce json
-// @Success 200 {object} api.Response{data=[]models.Product} "List of products"
+// @Param page query int false "Page number" default(1) minimum(1)
+// @Param limit query int false "Items per page" default(10) minimum(1) maximum(100)
+// @Success 200 {object} api.Response{data=[]models.Product,meta=api.Meta} "Paginated list of products"
 // @Failure 500 {object} api.Response "Internal server error"
 // @Router /products [get]
 func (h *ProductHandler) GetProducts(c *gin.Context) {
-	products, err := h.repo.GetProducts()
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	products, total, err := h.repo.GetProducts(page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, api.ErrorResponse("failed to fetch products", "product_error"))
 		return
 	}
 
 	response := api.SuccessResponse(products, &api.Meta{
-		Total: len(products),
+		Page:  page,
+		Limit: limit,
+		Total: total,
 	})
 	c.JSON(http.StatusOK, response)
 }

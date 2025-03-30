@@ -14,12 +14,12 @@ type MockProductRepository struct {
 	mock.Mock
 }
 
-func (m *MockProductRepository) GetProducts() ([]models.Product, error) {
-	args := m.Called()
+func (m *MockProductRepository) GetProducts(page, limit int) ([]models.Product, int64, error) {
+	args := m.Called(page, limit)
 	if args.Get(0) == nil {
-		return nil, args.Error(1)
+		return nil, 0, args.Error(2)
 	}
-	return args.Get(0).([]models.Product), args.Error(1)
+	return args.Get(0).([]models.Product), args.Get(1).(int64), args.Error(2)
 }
 
 func (m *MockProductRepository) GetProduct(id string) (*models.Product, error) {
@@ -82,6 +82,7 @@ func NewMockProduct() *models.Product {
 		Name:      "Test Product",
 		Duration:  30,
 		Price:     9.99,
+		TaxRate:   0.10,
 		CreatedAt: time.Now(),
 	}
 }
@@ -94,4 +95,14 @@ func NewMockSubscription() *models.Subscription {
 		EndDate:   time.Now().Add(30 * 24 * time.Hour),
 		CreatedAt: time.Now(),
 	}
+}
+
+func NewMockProductList(count int) []models.Product {
+	products := make([]models.Product, count)
+	for i := range count {
+		products[i] = *NewMockProduct()
+		products[i].Name = products[i].Name + " " + string(rune('A'+i))
+		products[i].CreatedAt = time.Now().Add(-time.Duration(count-i) * time.Hour) // Ensure different creation times
+	}
+	return products
 }

@@ -8,9 +8,9 @@ type (
 	}
 
 	Meta struct {
-		Total int `json:"total,omitempty"`
-		Page  int `json:"page,omitempty"`
-		Limit int `json:"limit,omitempty"`
+		Total int64 `json:"total,omitempty"`
+		Page  int   `json:"page,omitempty"`
+		Limit int   `json:"limit,omitempty"`
 	}
 
 	Error struct {
