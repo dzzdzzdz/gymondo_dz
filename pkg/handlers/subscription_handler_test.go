@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -129,12 +130,14 @@ func TestSubscriptionHandler(t *testing.T) {
 		mockProductRepo := new(testutils.MockProductRepository)
 		mockSubRepo := new(testutils.MockSubscriptionRepository)
 
-		mockSubRepo.On("PauseSubscription", activeSub.ID.String()).Return(pausedSub, nil)
+		expectedVersion := 1
+		mockSubRepo.On("PauseSubscription", activeSub.ID.String(), expectedVersion).Return(pausedSub, nil)
 
 		handler := handlers.NewSubscriptionHandler(mockSubRepo, mockProductRepo)
 		router := setupSubscriptionRouter(handler)
 
 		req := httptest.NewRequest("PATCH", "/subscriptions/"+activeSub.ID.String()+"/pause", nil)
+		req.Header.Set("If-Match", strconv.Itoa(expectedVersion))
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -143,7 +146,9 @@ func TestSubscriptionHandler(t *testing.T) {
 		var response api.Response
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
-		assert.Equal(t, string(models.StatusPaused), response.Data.(map[string]interface{})["status"].(string))
+
+		responseData := response.Data.(map[string]interface{})
+		assert.Equal(t, string(models.StatusPaused), responseData["status"].(string))
 
 		mockSubRepo.AssertExpectations(t)
 	})
@@ -177,12 +182,14 @@ func TestSubscriptionHandler(t *testing.T) {
 		mockProductRepo := new(testutils.MockProductRepository)
 		mockSubRepo := new(testutils.MockSubscriptionRepository)
 
-		mockSubRepo.On("PauseSubscription", cancelledSub.ID.String()).Return(nil, repositories.ErrCannotPause)
+		expectedVersion := 1
+		mockSubRepo.On("PauseSubscription", cancelledSub.ID.String(), expectedVersion).Return(nil, repositories.ErrCannotPause)
 
 		handler := handlers.NewSubscriptionHandler(mockSubRepo, mockProductRepo)
 		router := setupSubscriptionRouter(handler)
 
 		req := httptest.NewRequest("PATCH", "/subscriptions/"+cancelledSub.ID.String()+"/pause", nil)
+		req.Header.Set("If-Match", strconv.Itoa(expectedVersion))
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 

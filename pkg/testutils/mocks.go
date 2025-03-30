@@ -51,24 +51,24 @@ func (m *MockSubscriptionRepository) CreateSubscription(userID string, product *
 	return args.Get(0).(*models.Subscription), args.Error(1)
 }
 
-func (m *MockSubscriptionRepository) PauseSubscription(id string) (*models.Subscription, error) {
-	args := m.Called(id)
+func (m *MockSubscriptionRepository) PauseSubscription(id string, expectedVersion int) (*models.Subscription, error) {
+	args := m.Called(id, expectedVersion)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*models.Subscription), args.Error(1)
 }
 
-func (m *MockSubscriptionRepository) UnpauseSubscription(id string) (*models.Subscription, error) {
-	args := m.Called(id)
+func (m *MockSubscriptionRepository) UnpauseSubscription(id string, expectedVersion int) (*models.Subscription, error) {
+	args := m.Called(id, expectedVersion)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*models.Subscription), args.Error(1)
 }
 
-func (m *MockSubscriptionRepository) CancelSubscription(id string) (*models.Subscription, error) {
-	args := m.Called(id)
+func (m *MockSubscriptionRepository) CancelSubscription(id string, expectedVersion int) (*models.Subscription, error) {
+	args := m.Called(id, expectedVersion)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
