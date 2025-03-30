@@ -17,7 +17,7 @@ const (
 )
 
 type Subscription struct {
-	ID          uuid.UUID          `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()" json:"id"`
+	ID          uuid.UUID          `gorm:"type:uuid;primaryKey" json:"id"`
 	UserID      uuid.UUID          `gorm:"type:uuid;not null" json:"user_id"`
 	ProductID   uuid.UUID          `gorm:"type:uuid;not null" json:"product_id"`
 	Product     *Product           `gorm:"foreignKey:ProductID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"product,omitempty"`
@@ -29,4 +29,9 @@ type Subscription struct {
 	CreatedAt   time.Time          `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt   time.Time          `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt   gorm.DeletedAt     `gorm:"index" json:"-"` // Explicitly ignored in JSON
+}
+
+func (s *Subscription) BeforeCreate(tx *gorm.DB) (err error) {
+	s.ID = uuid.New()
+	return
 }

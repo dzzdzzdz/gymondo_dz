@@ -16,7 +16,7 @@ const (
 )
 
 type Product struct {
-	ID          uuid.UUID            `gorm:"type:uuid;primaryKey;default:uuid_generate_v4()" json:"id"`
+	ID          uuid.UUID            `gorm:"type:uuid;primaryKey" json:"id"`
 	Name        string               `gorm:"size:100;not null" json:"name"`
 	Description string               `gorm:"size:255" json:"description,omitempty"`
 	Price       float64              `gorm:"type:decimal(10,2);not null" json:"price"`
@@ -24,4 +24,9 @@ type Product struct {
 	CreatedAt   time.Time            `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt   time.Time            `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt   gorm.DeletedAt       `gorm:"index" json:"-"` // Explicitly ignored in JSON
+}
+
+func (p *Product) BeforeCreate(tx *gorm.DB) (err error) {
+	p.ID = uuid.New()
+	return
 }

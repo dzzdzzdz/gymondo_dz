@@ -12,12 +12,14 @@ import (
 
 func NewPostgresConnection() (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=UTC",
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=%s",
 		os.Getenv("DB_HOST"),
 		os.Getenv("DB_USER"),
 		os.Getenv("DB_PASSWORD"),
 		os.Getenv("DB_NAME"),
 		os.Getenv("DB_PORT"),
+		os.Getenv("DB_SSL_MODE"),
+		os.Getenv("DB_TIMEZONE"),
 	)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
@@ -70,4 +72,22 @@ func AutoMigrate(db *gorm.DB, isTest bool) error {
 
 	// PostgreSQL migrations
 	return db.AutoMigrate(&models.Product{}, &models.Subscription{})
+}
+
+func InitializeDB(db *gorm.DB, isTest bool) error {
+	if err := AutoMigrate(db, isTest); err != nil {
+		return fmt.Errorf("failed to auto-migrate: %w", err)
+	}
+
+	if !isTest {
+		if err := SeedProducts(db); err != nil {
+			return fmt.Errorf("failed to seed products: %w", err)
+		}
+
+		if err := SeedSubscriptions(db); err != nil {
+			return fmt.Errorf("failed to seed subscriptions: %w", err)
+		}
+	}
+
+	return nil
 }
