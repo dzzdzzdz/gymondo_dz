@@ -139,26 +139,39 @@ func (s *SubscriptionRepositoryTestSuite) TestPauseUnpauseSubscription() {
 	userID := uuid.New().String()
 	sub, err := s.subRepo.CreateSubscription(userID, product)
 	s.NoError(err)
+	s.Equal(1, sub.Version)
 
-	// Test pause
-	pausedSub, err := s.subRepo.PauseSubscription(sub.ID.String())
+	// Test pause with correct version
+	pausedSub, err := s.subRepo.PauseSubscription(sub.ID.String(), sub.Version)
 	s.NoError(err)
 	s.Equal(models.StatusPaused, pausedSub.Status)
 	s.NotNil(pausedSub.PausedAt)
+	s.Equal(2, pausedSub.Version)
 
-	// Test cannot pause already paused
-	_, err = s.subRepo.PauseSubscription(sub.ID.String())
+	// Test cannot pause with stale version
+	_, err = s.subRepo.PauseSubscription(sub.ID.String(), 1)
+	s.Error(err)
+	s.Equal(repositories.ErrConcurrentModification, err)
+
+	// Test cannot pause already paused (even with correct version)
+	_, err = s.subRepo.PauseSubscription(sub.ID.String(), 2)
 	s.Error(err)
 	s.Equal(repositories.ErrCannotPause, err)
 
-	// Test unpause
-	unpausedSub, err := s.subRepo.UnpauseSubscription(sub.ID.String())
+	// Test unpause with correct version
+	unpausedSub, err := s.subRepo.UnpauseSubscription(sub.ID.String(), 2)
 	s.NoError(err)
 	s.Equal(models.StatusActive, unpausedSub.Status)
 	s.Nil(unpausedSub.PausedAt)
+	s.Equal(3, unpausedSub.Version)
 
-	// Test cannot unpause active
-	_, err = s.subRepo.UnpauseSubscription(sub.ID.String())
+	// Test cannot unpause with stale version
+	_, err = s.subRepo.UnpauseSubscription(sub.ID.String(), 2)
+	s.Error(err)
+	s.Equal(repositories.ErrConcurrentModification, err)
+
+	// Test cannot unpause active (even with correct version)
+	_, err = s.subRepo.UnpauseSubscription(sub.ID.String(), 3)
 	s.Error(err)
 	s.Equal(repositories.ErrCannotUnpause, err)
 }
@@ -168,15 +181,22 @@ func (s *SubscriptionRepositoryTestSuite) TestCancelSubscription() {
 	userID := uuid.New().String()
 	sub, err := s.subRepo.CreateSubscription(userID, product)
 	s.NoError(err)
+	s.Equal(1, sub.Version)
 
-	// Test cancel
-	cancelledSub, err := s.subRepo.CancelSubscription(sub.ID.String())
+	// Test cancel with correct version
+	cancelledSub, err := s.subRepo.CancelSubscription(sub.ID.String(), 1)
 	s.NoError(err)
 	s.Equal(models.StatusCancelled, cancelledSub.Status)
 	s.NotNil(cancelledSub.CancelledAt)
+	s.Equal(2, cancelledSub.Version)
 
-	// Test cannot cancel already cancelled
-	_, err = s.subRepo.CancelSubscription(sub.ID.String())
+	// Test cannot cancel with stale version
+	_, err = s.subRepo.CancelSubscription(sub.ID.String(), 1)
+	s.Error(err)
+	s.Equal(repositories.ErrConcurrentModification, err)
+
+	// Test cannot cancel already cancelled (even with correct version)
+	_, err = s.subRepo.CancelSubscription(sub.ID.String(), 2)
 	s.Error(err)
 	s.Equal(repositories.ErrCannotCancel, err)
 }
@@ -186,15 +206,20 @@ func (s *SubscriptionRepositoryTestSuite) TestAutoExpiration() {
 	userID := uuid.New().String()
 	sub, err := s.subRepo.CreateSubscription(userID, product)
 	s.NoError(err)
+	originalVersion := sub.Version
 
 	// Manually set end date to past
 	s.db.Model(&models.Subscription{}).Where("id = ?", sub.ID).
-		Update("end_date", time.Now().Add(-24*time.Hour))
+		Updates(map[string]interface{}{
+			"end_date": time.Now().Add(-24 * time.Hour),
+			"version":  originalVersion,
+		})
 
 	// Test auto-expiration on get
 	retrieved, err := s.subRepo.GetSubscription(sub.ID.String())
 	s.NoError(err)
 	s.Equal(models.StatusExpired, retrieved.Status)
+	s.Equal(originalVersion+1, retrieved.Version)
 }
 
 func (s *SubscriptionRepositoryTestSuite) TestUnpauseExtendsSubscription() {
@@ -202,11 +227,13 @@ func (s *SubscriptionRepositoryTestSuite) TestUnpauseExtendsSubscription() {
 	userID := uuid.New().String()
 	sub, err := s.subRepo.CreateSubscription(userID, product)
 	s.NoError(err)
+	s.Equal(1, sub.Version)
 
 	// Pause the subscription and record time
 	beforePause := time.Now()
-	pausedSub, err := s.subRepo.PauseSubscription(sub.ID.String())
+	pausedSub, err := s.subRepo.PauseSubscription(sub.ID.String(), 1)
 	s.NoError(err)
+	s.Equal(2, pausedSub.Version)
 
 	// Verify pause happened after our marker time
 	s.True(pausedSub.PausedAt.After(beforePause) || pausedSub.PausedAt.Equal(beforePause))
@@ -219,12 +246,36 @@ func (s *SubscriptionRepositoryTestSuite) TestUnpauseExtendsSubscription() {
 	beforeUnpause := time.Now()
 
 	// Unpause
-	unpausedSub, err := s.subRepo.UnpauseSubscription(sub.ID.String())
+	unpausedSub, err := s.subRepo.UnpauseSubscription(sub.ID.String(), 2)
 	s.NoError(err)
+	s.Equal(3, unpausedSub.Version)
 
 	// Verify end date was extended correctly
 	expectedEnd := beforeUnpause.Add(remainingDuration)
 	s.WithinDuration(expectedEnd, unpausedSub.EndDate, time.Second)
 	s.Equal(models.StatusActive, unpausedSub.Status)
 	s.Nil(unpausedSub.PausedAt)
+
+	_, err = s.subRepo.UnpauseSubscription(pausedSub.ID.String(), 2) // stale version
+	s.ErrorIs(err, repositories.ErrConcurrentModification)
+}
+
+func (s *SubscriptionRepositoryTestSuite) TestConcurrentUpdates() {
+	product := s.seedTestProduct()
+	userID := uuid.New().String()
+	sub, _ := s.subRepo.CreateSubscription(userID, product)
+
+	// Simulate concurrent update by modifying the version directly in DB
+	s.db.Model(&models.Subscription{}).Where("id = ?", sub.ID).
+		Update("version", sub.Version+1)
+
+	// All operations should fail with ErrConcurrentModification
+	_, err := s.subRepo.PauseSubscription(sub.ID.String(), sub.Version)
+	s.ErrorIs(err, repositories.ErrConcurrentModification)
+
+	_, err = s.subRepo.UnpauseSubscription(sub.ID.String(), sub.Version)
+	s.ErrorIs(err, repositories.ErrConcurrentModification)
+
+	_, err = s.subRepo.CancelSubscription(sub.ID.String(), sub.Version)
+	s.ErrorIs(err, repositories.ErrConcurrentModification)
 }

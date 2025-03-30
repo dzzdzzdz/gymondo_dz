@@ -17,14 +17,15 @@ var (
 	ErrCannotCancel           = errors.New("subscription cannot be cancelled")
 	ErrProductRequired        = errors.New("product reference required")
 	ErrInvalidProductDuration = errors.New("product duration must be positive")
+	ErrConcurrentModification = errors.New("subscription was modified by another request")
 )
 
 type SubscriptionRepository interface {
 	GetSubscription(id string) (*models.Subscription, error)
 	CreateSubscription(id string, product *models.Product) (*models.Subscription, error)
-	PauseSubscription(id string) (*models.Subscription, error)
-	UnpauseSubscription(id string) (*models.Subscription, error)
-	CancelSubscription(id string) (*models.Subscription, error)
+	PauseSubscription(id string, version int) (*models.Subscription, error)
+	UnpauseSubscription(id string, version int) (*models.Subscription, error)
+	CancelSubscription(id string, version int) (*models.Subscription, error)
 }
 
 type SubscriptionRepositoryImpl struct {
@@ -54,6 +55,7 @@ func (r *SubscriptionRepositoryImpl) GetSubscription(id string) (*models.Subscri
 	if subscription.EndDate.Before(time.Now()) && subscription.Status != models.StatusExpired {
 		err := r.db.Model(&subscription).Updates(map[string]interface{}{
 			"status":     models.StatusExpired,
+			"version":    subscription.Version + 1,
 			"updated_at": time.Now(),
 		}).Error
 		if err != nil {
@@ -103,7 +105,7 @@ func (r *SubscriptionRepositoryImpl) CreateSubscription(userID string, product *
 	return newSub, nil
 }
 
-func (r *SubscriptionRepositoryImpl) PauseSubscription(id string) (*models.Subscription, error) {
+func (r *SubscriptionRepositoryImpl) PauseSubscription(id string, expectedVersion int) (*models.Subscription, error) {
 	var subscription models.Subscription
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		// Lock the record for update
@@ -117,6 +119,10 @@ func (r *SubscriptionRepositoryImpl) PauseSubscription(id string) (*models.Subsc
 			return err
 		}
 
+		if subscription.Version != expectedVersion {
+			return ErrConcurrentModification
+		}
+
 		if subscription.Status != models.StatusActive {
 			return ErrCannotPause
 		}
@@ -125,6 +131,7 @@ func (r *SubscriptionRepositoryImpl) PauseSubscription(id string) (*models.Subsc
 		updates := map[string]interface{}{
 			"status":     models.StatusPaused,
 			"paused_at":  now,
+			"version":    subscription.Version + 1,
 			"updated_at": now,
 		}
 
@@ -138,7 +145,7 @@ func (r *SubscriptionRepositoryImpl) PauseSubscription(id string) (*models.Subsc
 	return &subscription, nil
 }
 
-func (r *SubscriptionRepositoryImpl) UnpauseSubscription(id string) (*models.Subscription, error) {
+func (r *SubscriptionRepositoryImpl) UnpauseSubscription(id string, expectedVersion int) (*models.Subscription, error) {
 	var subscription models.Subscription
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		// Lock the record for update
@@ -150,6 +157,10 @@ func (r *SubscriptionRepositoryImpl) UnpauseSubscription(id string) (*models.Sub
 				return ErrSubscriptionNotFound
 			}
 			return err
+		}
+
+		if subscription.Version != expectedVersion {
+			return ErrConcurrentModification
 		}
 
 		if subscription.Status != models.StatusPaused {
@@ -167,6 +178,7 @@ func (r *SubscriptionRepositoryImpl) UnpauseSubscription(id string) (*models.Sub
 			"status":     models.StatusActive,
 			"end_date":   now.Add(remainingDuration),
 			"paused_at":  nil,
+			"version":    subscription.Version + 1,
 			"updated_at": now,
 		}
 
@@ -180,7 +192,7 @@ func (r *SubscriptionRepositoryImpl) UnpauseSubscription(id string) (*models.Sub
 	return &subscription, nil
 }
 
-func (r *SubscriptionRepositoryImpl) CancelSubscription(id string) (*models.Subscription, error) {
+func (r *SubscriptionRepositoryImpl) CancelSubscription(id string, expectedVersion int) (*models.Subscription, error) {
 	var subscription models.Subscription
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		// Lock the record for update
@@ -194,6 +206,10 @@ func (r *SubscriptionRepositoryImpl) CancelSubscription(id string) (*models.Subs
 			return err
 		}
 
+		if subscription.Version != expectedVersion {
+			return ErrConcurrentModification
+		}
+
 		if subscription.Status == models.StatusCancelled {
 			return ErrCannotCancel
 		}
@@ -202,6 +218,7 @@ func (r *SubscriptionRepositoryImpl) CancelSubscription(id string) (*models.Subs
 		updates := map[string]interface{}{
 			"status":       models.StatusCancelled,
 			"cancelled_at": now,
+			"version":      subscription.Version + 1,
 			"updated_at":   now,
 		}
 

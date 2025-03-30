@@ -33,6 +33,9 @@ func NewPostgresConnection() (*gorm.DB, error) {
 
 func AutoMigrate(db *gorm.DB, isTest bool) error {
 	if isTest {
+		// clean slate test
+		db.Exec("DROP TABLE IF EXISTS subscriptions")
+		db.Exec("DROP TABLE IF EXISTS products")
 		// SQLite-specific schema
 		err := db.Exec(`
             CREATE TABLE IF NOT EXISTS products (
@@ -40,6 +43,7 @@ func AutoMigrate(db *gorm.DB, isTest bool) error {
                 name TEXT NOT NULL,
                 description TEXT,
                 price REAL NOT NULL,
+				tax_rate REAL NOT NULL DEFAULT 0.10,
                 duration INTEGER NOT NULL,
                 created_at DATETIME,
                 updated_at DATETIME,
@@ -58,6 +62,7 @@ func AutoMigrate(db *gorm.DB, isTest bool) error {
         start_date DATETIME NOT NULL,
         end_date DATETIME NOT NULL,
         status TEXT NOT NULL DEFAULT 'active',
+		version INTEGER NOT NULL DEFAULT 1,
         paused_at DATETIME,
         cancelled_at DATETIME,
         created_at DATETIME,

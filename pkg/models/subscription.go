@@ -28,7 +28,8 @@ type Subscription struct {
 	CancelledAt *time.Time         `gorm:"index" json:"cancelled_at,omitempty"`
 	CreatedAt   time.Time          `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt   time.Time          `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt   gorm.DeletedAt     `gorm:"index" json:"-"` // Explicitly ignored in JSON
+	DeletedAt   gorm.DeletedAt     `gorm:"index" json:"-"`     // Explicitly ignored in JSON
+	Version     int                `gorm:"default:1" json:"-"` // Version for optimistic locking
 }
 
 func (s *Subscription) BeforeCreate(tx *gorm.DB) (err error) {

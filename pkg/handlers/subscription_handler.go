@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"gymondo_dz/pkg/api"
 	"gymondo_dz/pkg/repositories"
@@ -92,7 +93,23 @@ func (h *SubscriptionHandler) GetSubscription(c *gin.Context) {
 func (h *SubscriptionHandler) PauseSubscription(c *gin.Context) {
 	subID := c.Param("id")
 
-	sub, err := h.repo.PauseSubscription(subID)
+	versionHeader := c.GetHeader("If-Match")
+	if versionHeader == "" {
+		c.JSON(http.StatusPreconditionRequired, gin.H{
+			"error": "Missing If-Match header",
+		})
+		return
+	}
+
+	version, err := strconv.Atoi(versionHeader)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid If-Match header format",
+		})
+		return
+	}
+
+	sub, err := h.repo.PauseSubscription(subID, version)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -114,7 +131,23 @@ func (h *SubscriptionHandler) PauseSubscription(c *gin.Context) {
 func (h *SubscriptionHandler) UnpauseSubscription(c *gin.Context) {
 	subID := c.Param("id")
 
-	sub, err := h.repo.UnpauseSubscription(subID)
+	versionHeader := c.GetHeader("If-Match")
+	if versionHeader == "" {
+		c.JSON(http.StatusPreconditionRequired, gin.H{
+			"error": "Missing If-Match header",
+		})
+		return
+	}
+
+	version, err := strconv.Atoi(versionHeader)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid If-Match header format",
+		})
+		return
+	}
+
+	sub, err := h.repo.UnpauseSubscription(subID, version)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -135,8 +168,23 @@ func (h *SubscriptionHandler) UnpauseSubscription(c *gin.Context) {
 // @Router /subscriptions/{id} [delete]
 func (h *SubscriptionHandler) CancelSubscription(c *gin.Context) {
 	subID := c.Param("id")
+	versionHeader := c.GetHeader("If-Match")
+	if versionHeader == "" {
+		c.JSON(http.StatusPreconditionRequired, gin.H{
+			"error": "Missing If-Match header",
+		})
+		return
+	}
 
-	sub, err := h.repo.CancelSubscription(subID)
+	version, err := strconv.Atoi(versionHeader)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid If-Match header format",
+		})
+		return
+	}
+
+	sub, err := h.repo.CancelSubscription(subID, version)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -172,6 +220,10 @@ func (h *SubscriptionHandler) handleError(c *gin.Context, err error) {
 		status = http.StatusConflict
 		message = "cannot cancel subscription"
 		code = "invalid_state"
+	case errors.Is(err, repositories.ErrConcurrentModification):
+		status = http.StatusConflict
+		message = "subscription was modified by another request"
+		code = "concurrent_modification"
 	default:
 		status = http.StatusInternalServerError
 		message = "internal server error"
