@@ -1,6 +1,7 @@
 package repositories_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -278,4 +279,31 @@ func (s *SubscriptionRepositoryTestSuite) TestConcurrentUpdates() {
 
 	_, err = s.subRepo.CancelSubscription(sub.ID.String(), sub.Version)
 	s.ErrorIs(err, repositories.ErrConcurrentModification)
+}
+
+func (s *SubscriptionRepositoryTestSuite) TestConcurrentPauseCancel() {
+	product := s.seedTestProduct()
+	userID := uuid.New().String()
+	sub, _ := s.subRepo.CreateSubscription(userID, product)
+
+	// Simulate two concurrent operations
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	var pauseErr, cancelErr error
+
+	go func() {
+		defer wg.Done()
+		_, pauseErr = s.subRepo.PauseSubscription(sub.ID.String(), sub.Version)
+	}()
+
+	go func() {
+		defer wg.Done()
+		_, cancelErr = s.subRepo.CancelSubscription(sub.ID.String(), sub.Version)
+	}()
+
+	wg.Wait()
+
+	// Only one should succeed
+	s.True((pauseErr == nil && cancelErr != nil) || (pauseErr != nil && cancelErr == nil))
 }

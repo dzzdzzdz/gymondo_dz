@@ -203,4 +203,18 @@ func TestSubscriptionHandler(t *testing.T) {
 
 		mockSubRepo.AssertExpectations(t)
 	})
+
+	t.Run("Pause Subscription - Missing Version", func(t *testing.T) {
+		mockProductRepo := new(testutils.MockProductRepository)
+		mockSubRepo := new(testutils.MockSubscriptionRepository)
+
+		handler := handlers.NewSubscriptionHandler(mockSubRepo, mockProductRepo)
+		router := setupSubscriptionRouter(handler)
+
+		req := httptest.NewRequest("PATCH", "/subscriptions/"+activeSub.ID.String()+"/pause", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusPreconditionRequired, w.Code)
+	})
 }

@@ -3,6 +3,7 @@ package repositories_test
 import (
 	"gymondo_dz/pkg/models"
 	"gymondo_dz/pkg/repositories"
+	"strconv"
 	"testing"
 	"time"
 
@@ -113,6 +114,22 @@ func (s *ProductRepositoryTestSuite) TestGetProducts() {
 	assert.Equal(s.T(), "Monthly Plan", products[0].Name)
 	assert.Equal(s.T(), "Yearly Plan", products[1].Name)
 	assert.Equal(s.T(), "Lifetime Plan", products[2].Name)
+}
+
+func (s *ProductRepositoryTestSuite) TestGetProductsPerformance() {
+	// Seed large dataset
+	for i := 0; i < 1000; i++ {
+		product := models.Product{
+			Name:  "Product " + strconv.Itoa(i),
+			Price: float64(i),
+		}
+		s.NoError(s.db.Create(&product).Error)
+	}
+
+	start := time.Now()
+	_, _, err := s.repo.GetProducts(1, 100)
+	s.NoError(err)
+	s.True(time.Since(start) < time.Second, "Pagination query too slow")
 }
 
 func (s *ProductRepositoryTestSuite) TestGetProduct() {

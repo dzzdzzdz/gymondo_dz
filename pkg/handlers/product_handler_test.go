@@ -95,6 +95,18 @@ func TestProductHandler(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"error":{"message":"invalid product ID","code":"invalid_id"}}`,
 		},
+		{
+			name:   "GetProducts invalid pagination",
+			method: "GET",
+			path:   "/products",
+			query:  "page=-1&limit=1000",
+			mockSetup: func(m *testutils.MockProductRepository) {
+				// expect default values after validation
+				m.On("GetProducts", 1, 10).Return([]models.Product{}, int64(0), nil)
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   `{"data":[],"meta":{"page":1,"limit":10}}`,
+		},
 	}
 
 	for _, tt := range tests {
